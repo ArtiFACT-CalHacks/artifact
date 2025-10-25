@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Data directories
+data/
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Model checkpoints
+models/
+*.pth
+*.pkl
+*.h5
+*.hdf5
+
+# Logs and cache
+*.log
+logs/
+.cache/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Results
+results.csv
+metrics_summary.txt
+confusion_matrix.png
+training.log
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
