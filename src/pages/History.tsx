@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Search, Trash2, ArrowUpDown, Download } from 'lucide-react';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { Card } from '@/components/ui/card.tsx';
 import {
   Table,
   TableBody,
@@ -11,7 +11,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
+} from '@/components/ui/table.tsx';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,12 +21,12 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
-import Navbar from '@/components/Navbar';
-import Footer from '@/components/Footer';
-import { getHistory, deleteFromHistory } from '@/utils/historyStorage';
-import { AnalysisResult } from '@/types/analysis';
+} from '@/components/ui/alert-dialog.tsx';
+import { Badge } from '@/components/ui/badge.tsx';
+import Navbar from '@/components/Navbar.tsx';
+import Footer from '@/components/Footer.tsx';
+import { getHistory, deleteFromHistory } from '@/utils/historyStorage.ts';
+import { AnalysisResult } from '@/types/analysis.ts';
 import { toast } from 'sonner';
 
 type SortField = 'filename' | 'result' | 'confidence' | 'timestamp';
