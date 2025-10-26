@@ -16,6 +16,7 @@ import json
 from datetime import datetime
 
 from dataset_utils import create_data_loaders
+from datasets import load_dataset
 
 # Set up logging
 logging.basicConfig(
@@ -27,6 +28,25 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Load environment variables and authenticate with Hugging Face
+import os
+from huggingface_hub import login
+from dotenv import load_dotenv
+
+# Load environment variables from .env (if present)
+load_dotenv()
+
+# Authenticate with Hugging Face using token from environment
+hf_token = os.getenv("HUGGINGFACE_TOKEN")
+if hf_token:
+    try:
+        login(token=hf_token)
+        logger.info("Authenticated with Hugging Face")
+    except Exception as e:
+        logger.warning(f"Failed to authenticate with Hugging Face: {e}")
+else:
+    logger.info("HUGGINGFACE_TOKEN not set; continuing without authentication")
 
 
 class EfficientNetV2L(nn.Module):
@@ -237,28 +257,66 @@ def main():
         device = torch.device("cpu")
         logger.info("Using CPU")
     
-    # Check if data directory exists
-    if not Path("./data").exists():
-        logger.error("Data directory not found. Please create ./data/train/ai and ./data/train/real directories")
-        logger.info("You can use dataset_utils.download_faridlab_dataset() to download the dataset")
-        return
-    
-    # Create data loaders
-    logger.info("Loading dataset...")
+    # Stream dataset directly from Hugging Face (no local download)
+    logger.info("Loading dataset (streaming from Hugging Face)...")
     try:
-        train_loader, val_loader = create_data_loaders(
-            batch_size=8,
-            num_workers=2,
-            image_size=(224, 224)
-        )
-    except Exception as e:
-        logger.error(f"Error loading dataset: {e}")
-        logger.info("Please ensure your data is organized as:")
-        logger.info("  ./data/train/ai/*.mp4")
-        logger.info("  ./data/train/real/*.mp4")
-        logger.info("  ./data/val/ai/*.mp4")
-        logger.info("  ./data/val/real/*.mp4")
+        dataset = load_dataset("faridlab/deepaction_v1", trust_remote_code=True, streaming=True)
+        print("✅ Streaming DeepAction dataset from Hugging Face")
+
+        # --- ConvNeXtV2 lightweight prototype ---
+        from transformers import AutoImageProcessor, ConvNeXtV2ForImageClassification
+        from itertools import islice
+
+        model_name = "facebook/convnextv2-base-22k-224"
+        processor = AutoImageProcessor.from_pretrained(model_name)
+        model = ConvNeXtV2ForImageClassification.from_pretrained(model_name, num_labels=2)
+
+        device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        model.to(device)
+
+        # Take a small sample from the stream
+        stream = dataset["train"]
+        batch = list(islice(stream, 8))
+
+        import numpy as np
+        for sample in batch:
+            # `sample["video"]` may be a path, bytes, or pre-extracted frame depending on dataset.
+            # Adjust this to use the correct frame field or extract a frame first.
+            image = sample.get("video")
+            try:
+                inputs = processor(image, return_tensors="pt")
+                inputs = {k: v.to(device) for k, v in inputs.items()}
+                with torch.no_grad():
+                    logits = model(**inputs).logits
+                    pred = torch.argmax(logits, dim=-1).item()
+                print("Pred:", pred)
+            except Exception as e:
+                logger.warning(f"Skipping sample during prototype inference: {e}")
+
+        # Prototype done — stop here until you wire a full training loop
         return
+    except Exception as e:
+        logger.error(f"Error streaming dataset from Hugging Face: {e}")
+        logger.info("Falling back to local dataset loader")
+        # Fallback to local loaders if streaming fails
+        if not Path("./data").exists():
+            logger.error("Data directory not found. Please create ./data/train/ai and ./data/train/real directories")
+            logger.info("You can use dataset_utils.download_faridlab_dataset() to download the dataset")
+            return
+        try:
+            train_loader, val_loader = create_data_loaders(
+                batch_size=8,
+                num_workers=2,
+                image_size=(224, 224)
+            )
+        except Exception as e2:
+            logger.error(f"Error loading local dataset: {e2}")
+            logger.info("Please ensure your data is organized as:")
+            logger.info("  ./data/train/ai/*.mp4")
+            logger.info("  ./data/train/real/*.mp4")
+            logger.info("  ./data/val/ai/*.mp4")
+            logger.info("  ./data/val/real/*.mp4")
+            return
     
     # Train EfficientNet-V2-L
     logger.info("\n" + "="*60)

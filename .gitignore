@@ -28,6 +28,14 @@ data/
 *.mov
 *.mkv
 
+# Environment variables
+.env
+
+# Hugging Face cache + tokens
+~/.cache/huggingface/
+token
+**/token
+
 # Model checkpoints
 models/
 *.pth
