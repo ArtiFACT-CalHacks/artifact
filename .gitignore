@@ -23,6 +23,7 @@ MANIFEST
 
 # Data directories
 data/
+data_frames/
 *.mp4
 *.avi
 *.mov
