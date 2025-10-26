@@ -1,12 +1,57 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Newspaper, TrendingUp } from 'lucide-react';
+import { Newspaper, TrendingUp, RefreshCw, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import ArticleCard from '@/components/ArticleCard';
 import { mockNewsData } from '@/utils/mockNewsData';
+import { fetchNewsFromToolhouse, getCachedNews, getCacheAge } from '@/utils/toolhouseAgent';
+import { Article } from '@/types/article';
+import { toast } from 'sonner';
 
 const GenAINews = () => {
-  const articles = mockNewsData.articles;
+  const [articles, setArticles] = useState<Article[]>(mockNewsData.articles);
+  const [isLoading, setIsLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [usingCache, setUsingCache] = useState(false);
+
+  useEffect(() => {
+    // Try to load cached data on mount
+    const cached = getCachedNews();
+    if (cached) {
+      setArticles(cached.articles);
+      setLastUpdated(getCacheAge());
+      setUsingCache(true);
+    }
+  }, []);
+
+  const handleRefreshNews = async () => {
+    setIsLoading(true);
+    toast.loading('Fetching latest AI news articles...', { id: 'fetch-news' });
+
+    try {
+      const newsData = await fetchNewsFromToolhouse();
+      setArticles(newsData.articles);
+      setLastUpdated('Just now');
+      setUsingCache(false);
+      toast.success(`Loaded ${newsData.articles.length} fresh articles!`, { id: 'fetch-news' });
+    } catch (error) {
+      console.error('Failed to fetch news:', error);
+      toast.error('Failed to fetch news. Showing cached/mock data.', { id: 'fetch-news' });
+      
+      // Fallback to cached or mock data
+      const cached = getCachedNews();
+      if (cached) {
+        setArticles(cached.articles);
+        setUsingCache(true);
+      } else {
+        setArticles(mockNewsData.articles);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white text-[#4a2400] flex flex-col">
@@ -20,12 +65,39 @@ const GenAINews = () => {
             animate={{ opacity: 1, y: 0 }}
             className="mb-8"
           >
-            <div className="flex items-center gap-3 mb-4">
-              <h1 className="text-4xl font-bold text-[#2D44C8] font-serif">Gen-AI News</h1>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <h1 className="text-4xl font-bold text-[#2D44C8] font-serif">Gen-AI News</h1>
+                  {usingCache && (
+                    <span className="text-xs bg-yellow-500/20 text-yellow-700 px-2 py-1 rounded-full border border-yellow-500/50">
+                      Cached
+                    </span>
+                  )}
+                </div>
+                <p className="text-black/70 text-lg max-w-3xl">
+                  Stay informed about the latest developments in AI-generated media.
+                </p>
+              </div>
+
+              <Button
+                onClick={handleRefreshNews}
+                disabled={isLoading}
+                className="bg-[#2D44C8] hover:bg-[#1F2E8A] text-white rounded-full shadow-[inset_0_2px_4px_rgba(255,255,255,0.3)]"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Fetching...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Refresh News
+                  </>
+                )}
+              </Button>
             </div>
-            <p className="text-black/70 text-lg max-w-3xl">
-              Stay informed about the latest developments in AI-generated media.
-            </p>
           </motion.div>
 
           {/* Stats Bar */}
@@ -48,29 +120,47 @@ const GenAINews = () => {
                 <div className="flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-[#60718F]" />
                   <span className="text-black/70">
-                    <strong className="text-[#2D44C8] font-semibold">{articles.length}</strong> recent articles from trusted sources
+                    <strong className="text-[#2D44C8] font-semibold">{articles.length}</strong> articles from trusted sources
                   </span>
                 </div>
                 <div className="text-sm text-black/60">
-                  Last updated: {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  {lastUpdated ? `Last updated: ${lastUpdated}` : 'Using mock data'}
                 </div>
               </div>
             </div>
           </motion.div>
 
-          {/* Articles Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {articles.map((article, index) => (
-              <ArticleCard 
-                key={index} 
-                article={article} 
-                index={index}
-              />
-            ))}
-          </div>
+          {/* Loading State */}
+          {isLoading && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[...Array(6)].map((_, i) => (
+                <div
+                  key={i}
+                  className="h-96 rounded-xl border border-white/20 animate-pulse"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.4)',
+                    backdropFilter: 'blur(16px) saturate(180%)',
+                  }}
+                />
+              ))}
+            </div>
+          )}
 
-          {/* Empty State (for future when no articles) */}
-          {articles.length === 0 && (
+          {/* Articles Grid */}
+          {!isLoading && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {articles.map((article, index) => (
+                <ArticleCard 
+                  key={index} 
+                  article={article} 
+                  index={index}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!isLoading && articles.length === 0 && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -78,7 +168,14 @@ const GenAINews = () => {
             >
               <Newspaper className="w-16 h-16 mx-auto mb-4 text-black/30" />
               <h3 className="text-xl font-semibold text-black/70 mb-2">No articles available</h3>
-              <p className="text-black/50">Check back soon for the latest Gen-AI news</p>
+              <p className="text-black/50 mb-4">Click "Refresh News" to fetch the latest articles</p>
+              <Button
+                onClick={handleRefreshNews}
+                className="bg-[#2D44C8] hover:bg-[#1F2E8A] text-white rounded-full"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Fetch Articles
+              </Button>
             </motion.div>
           )}
         </div>

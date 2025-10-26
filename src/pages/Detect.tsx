@@ -7,7 +7,7 @@ import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import FileUpload from '@/components/FileUpload';
 import ResultsDisplay from '@/components/ResultsDisplay';
-import { uploadFile, detectAuthenticity } from '@/utils/mockApi';
+import { uploadFile, detectAuthenticity } from '@/utils/api';
 import { addToHistory } from '@/utils/historyStorage';
 import { AnalysisResult } from '@/types/analysis';
 import { toast } from 'sonner';
@@ -149,7 +149,7 @@ const Detect = () => {
                   <Button
                     onClick={handleRunDetection}
                     disabled={isProcessing}
-                    className="w-full bg-[#4a2400] hover:bg-[#5c2e00] text-white rounded-full shadow-[inset_0_2px_4px_rgba(255,255,255,0.3)]"
+                    className="w-full bg-[#2d44c8] hover:bg-[#1F2E8A] text-white rounded-full shadow-[inset_0_2px_4px_rgba(255,255,255,0.3)]"
                     size="lg"
                   >
                     {isProcessing ? (
