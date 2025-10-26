@@ -227,55 +227,187 @@ def split_dataset(source_dir: str, target_dir: str, train_ratio: float = 0.8):
     logger.info(f"  - Real train: {real_train_count}, val: {len(real_videos) - real_train_count}")
 
 
-def download_faridlab_dataset(data_dir: str = "./data"):
-    """Download FaridLab dataset from Hugging Face."""
-    try:
-        from datasets import load_dataset
+class HuggingFaceVideoDataset(Dataset):
+    """PyTorch dataset for Hugging Face DeepAction dataset."""
+    
+    def __init__(self, 
+                 split: str = "train",
+                 max_frames: int = 16,
+                 image_size: Tuple[int, int] = (224, 224),
+                 transform: Optional[transforms.Compose] = None,
+                 streaming: bool = True):
+        """
+        Initialize Hugging Face video dataset.
         
-        logger.info("Downloading FaridLab DeepAction v1 dataset...")
+        Args:
+            split: Dataset split ("train", "validation", "test")
+            max_frames: Maximum frames per video
+            image_size: Target image size
+            transform: Optional transforms
+            streaming: Whether to use streaming mode
+        """
+        self.split = split
+        self.max_frames = max_frames
+        self.image_size = image_size
+        self.streaming = streaming
         
-        # Load dataset
-        dataset = load_dataset("faridlab/deepaction_v1", trust_remote_code=True)
+        # Load dataset from Hugging Face
+        logger.info(f"Loading DeepAction v1 dataset - {split} split (streaming={streaming})...")
+        try:
+            from datasets import load_dataset
+            self.dataset = load_dataset("faridlab/deepaction_v1", streaming=streaming)
+            if streaming:
+                self.dataset_iter = iter(self.dataset[split])
+                self.length = None  # Unknown length for streaming
+            else:
+                self.dataset_iter = None
+                self.length = len(self.dataset[split])
+            logger.info(f"Dataset loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load dataset: {e}")
+            raise
         
-        # Create data directory
-        data_path = Path(data_dir)
-        data_path.mkdir(exist_ok=True)
+        # Default transforms
+        if transform is None:
+            self.transform = transforms.Compose([
+                transforms.Resize(image_size),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+                                   std=[0.229, 0.224, 0.225])
+            ])
+        else:
+            self.transform = transform
+    
+    def _process_frames(self, frames: List) -> torch.Tensor:
+        """Process video frames into tensor."""
+        if len(frames) == 0:
+            # Return dummy frames if no frames available
+            dummy_frames = torch.zeros(self.max_frames, 3, *self.image_size)
+            return dummy_frames
         
-        # Process and save videos
-        for split_name, split_data in dataset.items():
-            split_dir = data_path / split_name
-            (split_dir / "ai").mkdir(parents=True, exist_ok=True)
-            (split_dir / "real").mkdir(parents=True, exist_ok=True)
+        # Sample frames uniformly
+        if len(frames) <= self.max_frames:
+            sampled_frames = frames
+        else:
+            indices = np.linspace(0, len(frames) - 1, self.max_frames, dtype=int)
+            sampled_frames = [frames[i] for i in indices]
+        
+        # Convert frames to tensors
+        frame_tensors = []
+        for frame in sampled_frames:
+            try:
+                # Handle different frame formats
+                if isinstance(frame, np.ndarray):
+                    if frame.dtype == np.uint8:
+                        pil_image = Image.fromarray(frame)
+                    else:
+                        pil_image = Image.fromarray((frame * 255).astype(np.uint8))
+                elif hasattr(frame, 'convert'):
+                    pil_image = frame.convert('RGB')
+                else:
+                    # Fallback
+                    pil_image = Image.fromarray(np.zeros((224, 224, 3), dtype=np.uint8))
+                
+                tensor = self.transform(pil_image)
+                frame_tensors.append(tensor)
+            except Exception as e:
+                logger.warning(f"Error processing frame: {e}")
+                # Use dummy frame
+                dummy_tensor = torch.zeros(3, *self.image_size)
+                frame_tensors.append(dummy_tensor)
+        
+        # Pad with dummy frames if needed
+        while len(frame_tensors) < self.max_frames:
+            frame_tensors.append(torch.zeros(3, *self.image_size))
+        
+        # Stack frames: (T, C, H, W)
+        return torch.stack(frame_tensors)
+    
+    def __len__(self) -> int:
+        if self.length is not None:
+            return self.length
+        else:
+            # For streaming, return a large number
+            return 10000  # Approximate
+    
+    def __getitem__(self, idx: int) -> dict:
+        """Get a single video sample."""
+        try:
+            if self.streaming:
+                # Get next sample from iterator
+                sample = next(self.dataset_iter)
+            else:
+                # Get sample by index
+                sample = self.dataset[self.split][idx]
             
-            for i, sample in enumerate(split_data):
-                try:
-                    # Get video frames
-                    video = sample['video']
-                    frames = video['frames']
-                    
-                    if len(frames) == 0:
-                        continue
-                    
-                    # Determine label
-                    label = "ai" if sample.get('label', '') == 'AI-generated' else "real"
-                    
-                    # Save as video file (simplified - just save first frame as placeholder)
-                    # In practice, you'd want to save the actual video
-                    video_path = split_dir / label / f"video_{i}.mp4"
-                    
-                    # For now, create a placeholder file
-                    video_path.touch()
-                    
-                except Exception as e:
-                    logger.warning(f"Error processing sample {i}: {e}")
-                    continue
-        
-        logger.info("Dataset download completed!")
-        
-    except ImportError:
-        logger.error("datasets library not installed. Please install: pip install datasets")
-    except Exception as e:
-        logger.error(f"Error downloading dataset: {e}")
+            # Extract video frames
+            video = sample['video']
+            frames = video['frames'] if 'frames' in video else []
+            
+            # Get label: 0 for "real", 1 for "AI-generated"
+            label = 1 if sample.get('label', '') == 'AI-generated' else 0
+            
+            # Process frames
+            frames_tensor = self._process_frames(frames)
+            
+            return {
+                'frames': frames_tensor,
+                'label': torch.tensor(label, dtype=torch.float32),
+                'video_id': sample.get('video_id', f'video_{idx}')
+            }
+            
+        except StopIteration:
+            # End of streaming dataset
+            raise IndexError("End of dataset reached")
+        except Exception as e:
+            logger.warning(f"Error loading sample {idx}: {e}")
+            # Return dummy data
+            dummy_frames = torch.zeros(self.max_frames, 3, *self.image_size)
+            return {
+                'frames': dummy_frames,
+                'label': torch.tensor(0, dtype=torch.float32),
+                'video_id': f'dummy_{idx}'
+            }
+
+
+def create_huggingface_data_loaders(batch_size: int = 8,
+                                   num_workers: int = 2,
+                                   image_size: Tuple[int, int] = (224, 224),
+                                   streaming: bool = True) -> Tuple[DataLoader, DataLoader]:
+    """Create data loaders for Hugging Face dataset."""
+    
+    # Create datasets
+    train_dataset = HuggingFaceVideoDataset(split="train", image_size=image_size, streaming=streaming)
+    val_dataset = HuggingFaceVideoDataset(split="validation", image_size=image_size, streaming=streaming)
+    
+    # Create data loaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=not streaming,  # Don't shuffle streaming data
+        num_workers=0 if streaming else num_workers,  # No multiprocessing for streaming
+        pin_memory=True,
+        drop_last=True
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0 if streaming else num_workers,
+        pin_memory=True,
+        drop_last=False
+    )
+    
+    logger.info(f"Created HuggingFace data loaders - Train: {len(train_loader)}, Val: {len(val_loader)}")
+    
+    return train_loader, val_loader
+
+
+def download_faridlab_dataset(data_dir: str = "./data"):
+    """Download FaridLab dataset from Hugging Face (legacy function)."""
+    logger.info("Note: Using streaming dataset instead of downloading. Use create_huggingface_data_loaders() instead.")
+    return create_huggingface_data_loaders()
 
 
 if __name__ == "__main__":
