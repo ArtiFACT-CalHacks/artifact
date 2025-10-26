@@ -15,7 +15,7 @@ import logging
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 from tqdm import tqdm
 
-from dataset_utils import create_data_loaders
+from dataset_utils import create_data_loaders, create_huggingface_data_loaders
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -294,14 +294,26 @@ def main():
     # Create data loaders
     logger.info("Loading test dataset...")
     try:
-        train_loader, val_loader = create_data_loaders(
+        # Try Hugging Face dataset first
+        train_loader, val_loader = create_huggingface_data_loaders(
             batch_size=4,
-            num_workers=2,
-            image_size=(224, 224)
+            num_workers=0,
+            image_size=(224, 224),
+            streaming=True
         )
+        logger.info("✅ Using Hugging Face dataset")
     except Exception as e:
-        logger.error(f"Error loading dataset: {e}")
-        return
+        logger.warning(f"Error loading Hugging Face dataset: {e}")
+        logger.info("Falling back to local dataset...")
+        try:
+            train_loader, val_loader = create_data_loaders(
+                batch_size=4,
+                num_workers=2,
+                image_size=(224, 224)
+            )
+        except Exception as e2:
+            logger.error(f"Error loading local dataset: {e2}")
+            return
     
     # Initialize evaluator
     evaluator = TwoStageEvaluator(
